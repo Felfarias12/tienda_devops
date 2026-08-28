@@ -1,8 +1,8 @@
-name: CI/CD Tienda Perritos - Frontend
+name: CI/CD Tienda DevOps - Frontend
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "desarrollo_front" ]
     paths:
       - "frontend/**"
 
