@@ -29,7 +29,7 @@ auto-pr:
         BRANCH="${GITHUB_REF#refs/heads/}"
         echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-          if [[ "$BRANCH" == release/* || "$BRANCH" == hotfix/* ]]; then
+          if [[ "$BRANCH" == desarrollo_front/* ]]; then
             echo "base=main" >> "$GITHUB_OUTPUT"
           else
             echo "base=develop" >> "$GITHUB_OUTPUT"
