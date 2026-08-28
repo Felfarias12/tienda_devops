@@ -25,15 +25,15 @@ jobs:
       - run: npm run build
 
   auto-pr:
-  needs: test
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - name: Definir rama base según GitFlow
-      id: vars
-      run: |
-        BRANCH="${GITHUB_REF#refs/heads/}"
-        echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Definir rama base según GitFlow
+        id: vars
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
           if [[ "$BRANCH" == desarrollo_front/* ]]; then
             echo "base=main" >> "$GITHUB_OUTPUT"
@@ -41,10 +41,10 @@ jobs:
             echo "base=develop" >> "$GITHUB_OUTPUT"
           fi
 
-    - name: Crear PR si no existe
-      env:
+      - name: Crear PR si no existe
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
+        run: |
           BRANCH="${{ steps.vars.outputs.branch }}"
           BASE="${{ steps.vars.outputs.base }}"
 
