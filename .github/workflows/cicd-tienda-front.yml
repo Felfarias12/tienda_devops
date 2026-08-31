@@ -7,11 +7,11 @@ on:
       - '.github/workflows/**'
       - 'backend/**'
       - 'db/**'
-  jobs:
-    runs-on:
-      ubuntu-latest
-    steps:
-      - name: Checkout code
-      - run: echo "estoy funcionando"
+jobs:
+  runs-on:
+    ubuntu-latest
+  steps:
+    - name: Checkout code
+    - run: echo "estoy funcionando"
 
     
