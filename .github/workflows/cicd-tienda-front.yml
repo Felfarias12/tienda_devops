@@ -1,4 +1,5 @@
-name: GitFlow - CI/CD Tienda DevOps - Frontend(pull request)
+name: GitFlow - CI/CD Tienda DevOps 
+
 on:
   push:
     branches: [ "desarrollo_front" ]
@@ -7,12 +8,15 @@ on:
       - '.github/workflows/**'
       - 'backend/**'
       - 'db/**'
+
 jobs:
-  build:
-    runs-on:
-      ubuntu-latest
+  build:                          # <- este es el nombre/id del job, falta en tu versión
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-      - run: echo "estoy funcionando"
+        uses: actions/checkout@v4  # <- el step de checkout necesita 'uses', si no, no hace nada
+
+      - name: Probar pipeline
+        run: echo "estoy funcionando"
 
     
