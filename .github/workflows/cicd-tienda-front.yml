@@ -8,10 +8,11 @@ on:
       - 'backend/**'
       - 'db/**'
 jobs:
-  runs-on:
-    ubuntu-latest
-  steps:
-    - name: Checkout code
-    - run: echo "estoy funcionando"
+  build:
+    runs-on:
+      ubuntu-latest
+    steps:
+      - name: Checkout code
+      - run: echo "estoy funcionando"
 
     
