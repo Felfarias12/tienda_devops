@@ -10,12 +10,11 @@ on:
       - 'db/**'
 
 jobs:
-  build:                          # <- este es el nombre/id del job, falta en tu versión
+  build:                          
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4  # <- el step de checkout necesita 'uses', si no, no hace nada
-
+        uses: actions/checkout@v4  
       - name: Probar pipeline
         run: echo "estoy funcionando"
 
