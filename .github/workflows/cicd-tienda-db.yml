@@ -1,0 +1,28 @@
+name: CI Pipeline - Base de Datos
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validacion-db:
+    name: Validar Configuración BD
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v3
+
+      - name: Revisar script SQL
+        run: |
+          echo "Iniciando revision de la base de datos..."
+          if [ -f "db/init.sql" ]; then
+            echo "el archivo init.sql si existe validación exitosa."
+          else
+            echo "Error: No se encuentra el script inicial de la BD."
+            exit 1
+          fi
