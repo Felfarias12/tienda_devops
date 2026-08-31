@@ -14,4 +14,6 @@ INSERT INTO productos (nombre, descripcion, precio, stock) VALUES
 ('Alimento Adulto Light', 'Control de peso, razas medianas', 17990, 8),
 ('Snacks Dentales', 'Ayuda a la limpieza dental', 5990, 30),
 ('Alimento Adulto Pedigree', 'Sabor carne', 15990, 40),
-('Bravery pollo Adulto raza pequena', 'Sabor a pollo', 25990, 20);
+('Bravery pollo Adulto raza pequena', 'Sabor a pollo', 25990, 20),
+-- Nuevo producto agregado
+('Correa reflectante', 'Ideal para paseos nocturnos', 12990, 15);
