@@ -2,7 +2,7 @@ name: CI Simple - Notificacion
 on:
   push:
     branches:
-      - '**'
+      - 'develop'
   pull_request:
     branches:
       - 'main'
