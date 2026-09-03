@@ -2,7 +2,7 @@ name: GitFlow - CI/CD Tienda DevOps
 
 on:
   push:
-    branches: [ "desarrollo_front" ]
+    branches: [ main, develop, 'feature/**', 'hotfix/**' ]
     paths:
       - 'frontend/**'
       - '.github/workflows/**'
