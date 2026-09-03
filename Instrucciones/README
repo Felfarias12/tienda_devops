@@ -1,3 +1,5 @@
+##Instrucciones para correr la aplicación en local
+
 Comandos a utilizar:
     docker compose build
     docker compose up -d
