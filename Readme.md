@@ -3,10 +3,12 @@
 > Repositorio base para el pipeline DevOps — Evaluación Parcial N°1, Ingeniería DevOps (DOY0101)
 
 **Integrantes:**
-- Nombre Apellido — [correo institucional]
-- Nombre Apellido — [correo institucional]
+Vicente Donoso
+Felipe Farias
+Mario Jaramillo
 
-**Fecha de entrega:** [dd/mm/aaaa]
+
+**Fecha de entrega:** [4/9/2026]
 
 ---
 
@@ -80,13 +82,7 @@ Se utiliza el estándar **Conventional Commits**:
 | `test` | Agregar o corregir tests |
 | `chore` | Tareas de mantenimiento, configuración, dependencias |
 
-**Ejemplos:**
-```
-feat(auth): agregar validación de token JWT
-fix(api): corregir error 500 al listar usuarios
-docs(readme): actualizar instrucciones de instalación
-chore(ci): configurar workflow de GitHub Actions
-```
+
 
 ---
 
@@ -98,10 +94,6 @@ hotfix/<descripcion-corta-en-kebab-case>
 release/<version>
 ```
 
-**Ejemplos:**
-- `feature/login-social`
-- `feature/exportar-reporte-pdf`
-- `hotfix/fix-crash-al-iniciar-sesion`
 
 
 ---
@@ -170,7 +162,7 @@ git push origin hotfix/descripcion-del-bug
   - Pasar el pipeline de CI (GitHub Actions) antes de poder fusionarse.
   - Ser revisado por al menos un integrante distinto al autor (revisión cruzada en la pareja).
 - Los PR de `hotfix/*` tienen prioridad de revisión por su carácter urgente.
-- Se utiliza **merge commit** / **squash and merge** [elegir uno y justificar] para mantener el historial [limpio/trazable].
+- Se utiliza merge commit
 
 ---
 
@@ -185,15 +177,8 @@ Se configuró un workflow básico ubicado en `.github/workflows/ci.yml` que se e
 
 **¿Qué hace el workflow?**
 
-1. Descarga el código (`checkout`).
-2. Instala las dependencias del proyecto.
-3. Ejecuta pruebas automatizadas (unitarias / lint).
-4. [Opcional] Construye una imagen de contenedor o build de la app.
-5. Reporta el resultado como check en el Pull Request.
+actualmente hace un echo para mostrar que esta funcionando, mostrando un mensaje que lo corrobora
 
-**Rol dentro del proceso CI/CD:**
-
-[Explicar en 3-5 líneas por qué esta automatización es importante: detecta errores antes del merge, asegura calidad mínima del código que llega a develop/main, reduce trabajo manual de verificación, es la base para automatizar despliegues futuros en el semestre.]
 
 ---
 
@@ -204,29 +189,23 @@ nombre-microservicio/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
-├── src/
-│   ├── controllers/
-│   ├── services/
-│   ├── models/
-│   └── routes/
-├── tests/
-├── docs/
-├── .gitignore
+├── backend/
+│   
+│── db/
+│   
+│── frontend/   
+│   
+├── instrucciones/
 ├── README.md
-└── [archivo de dependencias, ej. package.json]
 ```
 
 **Convenciones:**
-- Código fuente dentro de `src/`, separado por responsabilidad (controllers, services, models).
-- Tests en carpeta paralela `tests/`, con nombre reflejando el archivo que prueban.
-- Documentación adicional en `docs/`.
-- No se versiona: variables de entorno (`.env`), carpetas de dependencias (`node_modules/`, etc.) — ver `.gitignore`.
-
+Actualmente el proyecto funciona unicamente en local
 ---
 
 ## Control de versiones
 
-Se utiliza **[Versionado Semántico (SemVer)](https://semver.org/lang/es/)**: `MAJOR.MINOR.PATCH`
+Se utiliza`MAJOR.MINOR.PATCH`
 
 - **MAJOR**: cambios incompatibles con versiones anteriores.
 - **MINOR**: nuevas funcionalidades compatibles hacia atrás (ej. features).
@@ -250,15 +229,17 @@ Los releases se etiquetan (`git tag`) desde `main` tras cada fusión relevante.
 git clone [url-del-repositorio]
 cd nombre-microservicio
 
-# Instalar dependencias
-[comando]
+Comandos a utilizar:
+    docker compose build
+    docker compose up -d
 
-# Ejecutar en modo desarrollo
-[comando]
+Se necesita Docker Desktop
 
-# Ejecutar tests
-[comando]
-```
+corre en local: http://localhost:8080/productos
+
+Una vez que se haya hecho push a la rama desarrollo_front, 
+se ejecutará el workflow de GitHub Actions para desplegar la aplicación en el servidor EC2 cuando los secretos se configuren.
+
 
 ---
 
@@ -273,10 +254,13 @@ Conforme a las indicaciones de la evaluación, se declara el uso de IA en este t
 
 ## Reflexiones individuales
 
-### [Nombre integrante 1]
+### [Felipe Farías]
 
-[Reflexión personal sobre el aprendizaje y contribución al proyecto — redactada sin apoyo de IA]
+Con este proyecto aprendi la forma correcta de versionar, modificar y trabajar en equipo utilizando github.
+### [Mario Jaramillo]
 
-### [Nombre integrante 2]
+Gracias a este proyecto, pude pulir mi forma de trabajar con github para ser mas eficiente.
 
-[Reflexión personal sobre el aprendizaje y contribución al proyecto — redactada sin apoyo de IA]
+###[Vicente Donoso]
+
+Aunque ya conocía GitHub de antes y lo usaba en otros ramos, este proyecto me sirvió para entender de verdad cómo se organiza un trabajo en equipo ordenado usando gitflow y ramas separadas.
