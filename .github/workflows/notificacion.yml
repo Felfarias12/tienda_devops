@@ -1,4 +1,4 @@
-name: CI Simple - Notificacion
+name: CI Pipeline - Notificacion
 on:
   push:
     branches:
