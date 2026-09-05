@@ -1,0 +1,21 @@
+name: GitFlow - CI/CD Tienda DevOps 
+
+on:
+  push:
+    branches: [ "desarrollo_front" ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/**'
+      - 'backend/**'
+      - 'db/**'
+
+jobs:
+  build:                          
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4  
+      - name: Probar pipeline
+        run: echo "estoy funcionando"
+
+    

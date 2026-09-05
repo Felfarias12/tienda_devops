@@ -1,0 +1,12 @@
+##Instrucciones para correr la aplicación en local
+
+Comandos a utilizar:
+    docker compose build
+    docker compose up -d
+
+Se necesita Docker Desktop
+
+corre en local: http://localhost:8080/productos
+
+Una vez que se haya hecho push a la rama desarrollo_front, 
+se ejecutará el workflow de GitHub Actions para desplegar la aplicación en el servidor EC2 cuando los secretos se configuren.
