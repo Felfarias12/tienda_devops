@@ -1,0 +1,24 @@
+name: CI Pipeline - Notificacion
+on:
+  push:
+    branches:
+      - 'develop'
+  pull_request:
+    branches:
+      - 'main'
+
+jobs:
+  notificar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: descargar el codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: mostrar mensaje en consola
+        run: |
+          echo "---------------------------------------------"
+          echo "push detectado en el repositorio"
+          echo "rama origen: ${{ github.ref_name }}"
+          echo "autor del commit: ${{ github.actor }}"
+          echo "----------------------------------------------"
