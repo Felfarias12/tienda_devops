@@ -1,28 +1,280 @@
-name: CI Pipeline - Base de Datos
+name: CI/CD - Base de Datos Tienda
 
 on:
   push:
-    branches:
-      - develop
+    branches: [ "main" ]
+    paths:
+      - 'db/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/cicd-tienda-db.yml'
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
+    paths:
+      - 'db/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/cicd-tienda-db.yml'
+
+concurrency:
+  group: db-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}-db
 
 jobs:
-  validacion-db:
-    name: Validar Configuración BD
+  # ---------------------------------------------------------------
+  # 1. Análisis estático del Dockerfile (IE1, IE3)
+  # ---------------------------------------------------------------
+  lint:
+    name: Lint del Dockerfile
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout del código
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Revisar script SQL
+      - name: Revisar que exista el script inicial
+        run: test -f db/init.sql || { echo "No se encuentra db/init.sql"; exit 1; }
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: db/Dockerfile
+          failure-threshold: warning
+
+  # ---------------------------------------------------------------
+  # 2. Pruebas del esquema y los datos iniciales (IE2)
+  #    Levanta la imagen real y valida init.sql contra MySQL
+  # ---------------------------------------------------------------
+  test:
+    name: Pruebas del esquema SQL
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Construir imagen de la base de datos
+        run: docker build -t db-test-image ./db
+
+      # La contraseña root viene del ENV del Dockerfile (db/Dockerfile)
+      - name: Iniciar contenedor
+        run: docker run -d --name db-test db-test-image
+
+      - name: Esperar a que init.sql termine de cargarse
         run: |
-          echo "Iniciando revision de la base de datos..."
-          if [ -f "db/init.sql" ]; then
-            echo "el archivo init.sql si existe validación exitosa."
-          else
-            echo "Error: No se encuentra el script inicial de la BD."
-            exit 1
+          for i in $(seq 1 36); do
+            if docker exec -e MYSQL_PWD=admin123 db-test \
+                mysql -uroot -N -B -e "SELECT COUNT(*) FROM tienda_perritos.productos" 2>/dev/null; then
+              echo "Base de datos lista (intento $i)"
+              exit 0
+            fi
+            echo "Esperando a MySQL... ($i/36)"
+            sleep 5
+          done
+          echo "MySQL no quedó listo a tiempo"
+          docker logs db-test | tail -50
+          exit 1
+
+      - name: Ejecutar pruebas
+        run: |
+          set -e
+          q() { docker exec -e MYSQL_PWD=admin123 db-test mysql -uroot -N -B tienda_perritos -e "$1"; }
+          fail() { echo "FALLO: $1"; exit 1; }
+
+          echo "1) La tabla productos existe"
+          [ "$(q "SHOW TABLES LIKE 'productos'")" = "productos" ] || fail "no existe la tabla productos"
+
+          echo "2) Columnas esperadas, en orden"
+          COLS="$(q "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='tienda_perritos' AND TABLE_NAME='productos'")"
+          [ "$COLS" = "id,nombre,descripcion,precio,stock" ] || fail "columnas inesperadas: $COLS"
+
+          echo "3) Hay datos iniciales (mínimo 6 productos)"
+          N="$(q "SELECT COUNT(*) FROM productos")"
+          [ "$N" -ge 6 ] || fail "solo hay $N productos"
+
+          echo "4) Sin precios <= 0 ni stock negativo"
+          BAD="$(q "SELECT COUNT(*) FROM productos WHERE precio <= 0 OR stock < 0")"
+          [ "$BAD" = "0" ] || fail "$BAD filas con precio o stock inválido"
+
+          echo "5) Sin nombres duplicados"
+          DUP="$(q "SELECT COUNT(*) - COUNT(DISTINCT nombre) FROM productos")"
+          [ "$DUP" = "0" ] || fail "$DUP nombres duplicados"
+
+          echo "6) La restricción NOT NULL de nombre se cumple"
+          if q "INSERT INTO productos (nombre, precio, stock) VALUES (NULL, 1, 1)" 2>/dev/null; then
+            fail "se pudo insertar un producto sin nombre"
           fi
+
+          echo "Todas las pruebas del esquema pasaron"
+
+      - name: Logs si falla
+        if: failure()
+        run: docker logs db-test | tail -80
+
+      - name: Limpiar
+        if: always()
+        run: docker rm -f db-test || true
+
+  # ---------------------------------------------------------------
+  # 3. Build, escaneo de vulnerabilidades y publicación (IE1, IE3, IE4)
+  # ---------------------------------------------------------------
+  build:
+    name: Construir, escanear y publicar imagen
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # GHCR exige el nombre de la imagen en minúsculas
+      - name: Normalizar nombre de imagen
+        run: echo "IMAGE_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local (sin push) para escanear
+        uses: docker/build-push-action@v6
+        with:
+          context: ./db
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_LC }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Informe informativo de HIGH y CRITICAL (no bloquea)
+      - name: Trivy - informe de vulnerabilidades (HIGH y CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_LC }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+
+      # Compuerta: bloquea el pipeline ante vulnerabilidades críticas con parche disponible
+      - name: Trivy - bloqueo por vulnerabilidades críticas
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_LC }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Login en GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar imagen (solo en push a main)
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./db
+          push: true
+          tags: |
+            ${{ env.IMAGE_LC }}:${{ github.sha }}
+            ${{ env.IMAGE_LC }}:latest
+          cache-from: type=gha
+
+  # ---------------------------------------------------------------
+  # 4. Despliegue simulado con Docker Compose + persistencia (IE4, IE5)
+  # ---------------------------------------------------------------
+  deploy:
+    name: Despliegue simulado
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Login en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # El servicio db usa la imagen publicada con el SHA del commit
+      - name: Preparar override con la imagen del commit
+        run: |
+          IMAGE_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          cat > docker-compose.deploy.yml <<EOF
+          services:
+            db:
+              image: ${IMAGE_LC}:${GITHUB_SHA}
+              pull_policy: always
+          EOF
+          echo "Imagen a desplegar: ${IMAGE_LC}:${GITHUB_SHA}"
+
+      - name: Levantar base de datos
+        run: |
+          COMPOSE="docker compose -f docker-compose.yml -f docker-compose.deploy.yml"
+          $COMPOSE pull db
+          $COMPOSE up -d --no-build db
+
+      - name: Smoke test - datos iniciales cargados
+        run: |
+          for i in $(seq 1 36); do
+            N="$(docker exec -e MYSQL_PWD=admin123 tienda-db \
+                  mysql -uroot -N -B -e "SELECT COUNT(*) FROM tienda_perritos.productos" 2>/dev/null || true)"
+            if [ -n "$N" ] && [ "$N" -ge 6 ]; then
+              echo "Base de datos desplegada con $N productos (intento $i)"
+              exit 0
+            fi
+            echo "Esperando a la base de datos... ($i/36)"
+            sleep 5
+          done
+          echo "La base de datos no quedó operativa"
+          exit 1
+
+      # Los datos viven en el volumen dbdata: deben sobrevivir a un reinicio
+      - name: Prueba de persistencia tras reinicio
+        run: |
+          COMPOSE="docker compose -f docker-compose.yml -f docker-compose.deploy.yml"
+          $COMPOSE restart db
+          for i in $(seq 1 24); do
+            N="$(docker exec -e MYSQL_PWD=admin123 tienda-db \
+                  mysql -uroot -N -B -e "SELECT COUNT(*) FROM tienda_perritos.productos" 2>/dev/null || true)"
+            if [ -n "$N" ] && [ "$N" -ge 6 ]; then
+              echo "Los datos persisten tras el reinicio ($N productos)"
+              exit 0
+            fi
+            echo "Esperando reinicio... ($i/24)"
+            sleep 5
+          done
+          echo "Los datos no persistieron tras el reinicio"
+          exit 1
+
+      - name: Mostrar logs si falla
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml logs --tail=100 db
+
+      - name: Resumen de trazabilidad
+        if: always()
+        run: |
+          {
+            echo "### Trazabilidad del despliegue (base de datos)"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Autor: ${GITHUB_ACTOR}"
+            echo "- Rama: ${GITHUB_REF_NAME}"
+            echo "- Imagen: \`${IMAGE_NAME}:${GITHUB_SHA}\`"
+            echo "- Ejecución: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Limpiar entorno simulado
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v

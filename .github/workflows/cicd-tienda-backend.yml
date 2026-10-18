@@ -1,0 +1,229 @@
+name: CI/CD - Backend Tienda
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/cicd-tienda-backend.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/cicd-tienda-backend.yml'
+
+# Cancela ejecuciones anteriores de la misma rama/PR
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "18"
+  IMAGE_NAME: ghcr.io/${{ github.repository }}-backend
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1. Pruebas unitarias (IE2)
+  # ---------------------------------------------------------------
+  test:
+    name: Pruebas unitarias
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Instalar dependencias
+        run: npm install
+
+      # Falla si no existe el script "test" (no se usa --if-present a propósito)
+      - name: Ejecutar pruebas con cobertura
+        run: npm test
+
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------
+  # 2. Análisis de seguridad (IE3). Si falla, se bloquea el pipeline
+  # ---------------------------------------------------------------
+  security:
+    name: Análisis de seguridad
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Instalar dependencias
+        working-directory: backend
+        run: npm install
+
+      # Compuerta sin token: falla (exit 1) ante vulnerabilidades altas o críticas
+      - name: npm audit (severidad alta o superior)
+        working-directory: backend
+        run: npm audit --audit-level=high
+
+      # Requiere el secreto SNYK_TOKEN en Settings > Secrets and variables > Actions
+      - name: Snyk - análisis de dependencias
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=backend/package.json --severity-threshold=high
+
+  # ---------------------------------------------------------------
+  # 3. Construcción y publicación de la imagen Docker (IE1, IE4)
+  # ---------------------------------------------------------------
+  build:
+    name: Construir y publicar imagen
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ env.IMAGE_NAME }}
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login en GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action pasa el nombre a minúsculas, como exige GHCR
+      - name: Generar tags de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build (y push solo en push a main)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------
+  # 4. Despliegue simulado en el runner + smoke test (IE4, IE5)
+  # ---------------------------------------------------------------
+  deploy:
+    name: Despliegue simulado
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Login en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Usa la imagen publicada con el SHA del commit, no una construida de nuevo
+      - name: Preparar override con la imagen del commit
+        run: |
+          IMAGE_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          cat > docker-compose.deploy.yml <<EOF
+          services:
+            backend:
+              image: ${IMAGE_LC}:${GITHUB_SHA}
+              pull_policy: always
+          EOF
+          echo "Imagen a desplegar: ${IMAGE_LC}:${GITHUB_SHA}"
+
+      - name: Levantar base de datos y backend
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.deploy.yml pull backend
+          docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --no-build db backend
+
+      - name: Smoke test - /api/health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3001/api/health; then
+              echo ""
+              echo "Backend saludable (intento $i)"
+              exit 0
+            fi
+            echo "Esperando al backend... ($i/30)"
+            sleep 5
+          done
+          echo "El backend no respondió a tiempo"
+          exit 1
+
+      # MySQL tarda más en inicializar que el backend; se reintenta hasta 60 s
+      - name: Smoke test - /api/productos (conexión a la base de datos)
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS http://localhost:3001/api/productos > /dev/null; then
+              echo "Consulta a la base de datos OK (intento $i)"
+              exit 0
+            fi
+            echo "Esperando a la base de datos... ($i/12)"
+            sleep 5
+          done
+          echo "El backend no pudo consultar la base de datos"
+          exit 1
+
+      - name: Mostrar logs si falla
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml logs --tail=100
+
+      - name: Resumen de trazabilidad
+        if: always()
+        run: |
+          {
+            echo "### Trazabilidad del despliegue"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Autor: ${GITHUB_ACTOR}"
+            echo "- Rama: ${GITHUB_REF_NAME}"
+            echo "- Imagen: \`${IMAGE_NAME}:${GITHUB_SHA}\`"
+            echo "- Ejecución: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Limpiar entorno simulado
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v
