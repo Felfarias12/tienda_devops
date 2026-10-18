@@ -137,6 +137,12 @@ jobs:
         with:
           projectBaseDir: backend
           args: >
+            -Dsonar.projectKey=Felfarias12_tienda_devops
+            -Dsonar.organization=felfarias12
+            -Dsonar.sources=.
+            -Dsonar.tests=tests
+            -Dsonar.exclusions=node_modules/**,coverage/**,tests/**
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
