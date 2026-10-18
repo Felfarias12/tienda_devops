@@ -1,9 +1,14 @@
 const express = require("express");
 const cors = require("cors");
 
-let corsOptions = { origin: 'trustedwebsite.com' };
-let app = express();
+const app = express();
+
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || false,
+};
+
 app.use(cors(corsOptions));
+app.use(express.json());
 // El pool de conexiones se inyecta desde server.js (o un mock en los tests)
 let pool;
 
