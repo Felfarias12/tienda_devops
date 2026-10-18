@@ -1,8 +1,8 @@
 const mysql = require("mysql2/promise");
 const { app, setPool } = require("./app");
-
+ 
 const PORT = process.env.PORT || 3001;
-
+ 
 const {
   DB_HOST = "10.0.2.134", // acá colocar la IP Privada EC2 DB
   DB_USER = "root",
@@ -10,7 +10,7 @@ const {
   DB_NAME = "tienda_perritos",
   DB_PORT = 3306,
 } = process.env;
-
+ 
 // Inicializar pool de conexiones
 async function initDb() {
   try {
@@ -30,7 +30,7 @@ async function initDb() {
     console.error("Error al inicializar pool de MySQL:", err);
   }
 }
-
+ 
 // Iniciar servidor
 app.listen(PORT, async () => {
   console.log(`Servidor backend escuchando en puerto ${PORT}`);
