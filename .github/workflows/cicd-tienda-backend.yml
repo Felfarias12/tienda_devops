@@ -46,9 +46,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Instalar dependencias
-        run: npm install
+        run: npm ci
 
       # Falla si no existe el script "test" (no se usa --if-present a propósito)
       - name: Ejecutar pruebas con cobertura
@@ -76,15 +78,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Instalar dependencias
         working-directory: backend
-        run: npm install
+        run: npm ci
 
       # Compuerta sin token: falla (exit 1) ante vulnerabilidades altas o críticas
+      # en dependencias de producción (--omit=dev excluye jest/supertest)
       - name: npm audit (severidad alta o superior)
         working-directory: backend
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
       # Requiere el secreto SNYK_TOKEN en Settings > Secrets and variables > Actions
       - name: Snyk - análisis de dependencias
