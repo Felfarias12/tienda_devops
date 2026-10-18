@@ -1,0 +1,2 @@
+# Base de Datos - Tienda de Perritos
+Este directorio contiene el script "init.sql" encargado de crear la estructura inicial de la base de datos MySQL mediante Docker y cargar el catálogo de productos inicial.
