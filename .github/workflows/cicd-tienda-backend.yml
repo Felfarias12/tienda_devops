@@ -15,11 +15,12 @@ on:
       - 'db/**'
       - 'docker-compose.yml'
       - '.github/workflows/cicd-tienda-backend.yml'
+  workflow_dispatch:
 
-# Cancela ejecuciones anteriores de la misma rama/PR
+# En PR se cancela la ejecución anterior; en main nunca, para no cortar un despliegue a medias
 concurrency:
   group: backend-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -30,7 +31,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # 1. Pruebas unitarias (IE2)
+  # 1. Pruebas unitarias + cobertura (IE2)
   # ---------------------------------------------------------------
   test:
     name: Pruebas unitarias
@@ -52,10 +53,11 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      # Falla si no existe el script "test" (no se usa --if-present a propósito)
+      # Falla si no existe el script "test" o si baja del umbral de cobertura
       - name: Ejecutar pruebas con cobertura
         run: npm test
 
+      # lcov.info lo consume SonarCloud en el job "sonar"
       - name: Publicar reporte de cobertura
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,10 +67,10 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # 2. Análisis de seguridad (IE3). Si falla, se bloquea el pipeline
+  # 2. Seguridad de dependencias (IE3). Si falla, se bloquea el pipeline
   # ---------------------------------------------------------------
   security:
-    name: Análisis de seguridad
+    name: Snyk y npm audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -91,26 +93,63 @@ jobs:
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
 
-      # Requiere el secreto SNYK_TOKEN en Settings > Secrets and variables > Actions
+      # Requiere el secreto SNYK_TOKEN. Bloquea ante severidad alta o superior
+      # y deja el informe real en JSON como evidencia.
       - name: Snyk - análisis de dependencias
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --file=backend/package.json --severity-threshold=high
+          args: --file=backend/package.json --severity-threshold=high --json-file-output=snyk-report.json
+
+      - name: Publicar informe de Snyk
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-report
+          path: snyk-report.json
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # 3. Construcción y publicación de la imagen Docker (IE1, IE4)
+  # 3. Calidad de código con SonarCloud (IE2, IE3)
+  #    Usa la cobertura del job "test". Si el quality gate falla, bloquea.
+  # ---------------------------------------------------------------
+  sonar:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # SonarCloud necesita el historial completo para atribuir líneas
+
+      - name: Descargar reporte de cobertura
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage
+
+      - name: Análisis de SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: backend
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+  # ---------------------------------------------------------------
+  # 4. Construcción y publicación de la imagen Docker (IE1, IE4)
   # ---------------------------------------------------------------
   build:
     name: Construir y publicar imagen
     runs-on: ubuntu-latest
-    needs: [test, security]
+    needs: [test, security, sonar]
     permissions:
       contents: read
       packages: write
-    outputs:
-      image: ${{ env.IMAGE_NAME }}
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
@@ -119,7 +158,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login en GitHub Container Registry
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -136,24 +175,24 @@ jobs:
             type=raw,value=${{ github.sha }}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build (y push solo en push a main)
+      - name: Build (y push fuera de los PR)
         uses: docker/build-push-action@v6
         with:
           context: ./backend
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------
-  # 4. Despliegue simulado en el runner + smoke test (IE4, IE5)
+  # 5. Despliegue simulado en el runner + smoke test (IE4, IE5)
   # ---------------------------------------------------------------
   deploy:
     name: Despliegue simulado
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: read
@@ -221,7 +260,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "### Trazabilidad del despliegue"
+            echo "### Trazabilidad del despliegue (backend, simulado)"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Autor: ${GITHUB_ACTOR}"
             echo "- Rama: ${GITHUB_REF_NAME}"
@@ -232,3 +271,5 @@ jobs:
       - name: Limpiar entorno simulado
         if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v
+
+ 
