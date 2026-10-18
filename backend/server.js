@@ -4,6 +4,9 @@ const { app, setPool } = require("./app");
 const PORT = process.env.PORT || 3001;
  
 const {
+  DB_HOST,
+  DB_USER,
+  DB_PASSWORD,
   DB_NAME = "tienda_perritos",
   DB_PORT = 3306,
 } = process.env;
