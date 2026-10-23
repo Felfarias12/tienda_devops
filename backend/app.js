@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
+app.disable("x-powered-by");
 
 const corsOptions = {
   origin: process.env.CORS_ORIGIN || false,
