@@ -29,8 +29,5 @@
         "functions": 80
       }
     }
-  },
-  "overrides": {
-    "body-parser": "1.20.9"
   }
 }
