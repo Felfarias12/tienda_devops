@@ -51,7 +51,7 @@ function renderProductos(productos) {
       <td>${p.id}</td>
       <td>${p.nombre}</td>
       <td>${p.descripcion || ""}</td>
-      <td>$${Number(p.precio).toFixed(2)}</td>
+      <td>${formatoCLP.format(p.precio)}</td>
       <td>${p.stock}</td>
       <td>
         <button data-id="${p.id}" class="btn-editar">Editar</button>
@@ -97,6 +97,15 @@ function obtenerDatosFormulario() {
     stock: parseInt(inputStock.value, 10),
   };
 }
+
+const formatoCLP = new Intl.NumberFormat("es-CL", {
+  style: "currency",
+  currency: "CLP",
+  maximumFractionDigits: 0,
+});
+
+formatoCLP.format(1234567); // "$1.234.567"
+formatoCLP.format(1234.56); // "$1.235"
 
 function validarProducto(prod) {
   if (!prod.nombre) return "El nombre es obligatorio.";
