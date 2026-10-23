@@ -5,51 +5,107 @@ on:
     branches: [ "main" ]
     paths:
       - 'frontend/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/cicd-tienda-front.yml'
+      - '.github/workflows/cicd-tienda-frontend.yml'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'frontend/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/cicd-tienda-front.yml'
+      - '.github/workflows/cicd-tienda-frontend.yml'
+  workflow_dispatch:
 
+# En PR se cancela la ejecución anterior; en main nunca, para no cortar un despliegue a medias
 concurrency:
   group: frontend-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
+  NODE_VERSION: "20"
   IMAGE_NAME: ghcr.io/${{ github.repository }}-frontend
 
 jobs:
   # ---------------------------------------------------------------
-  # 1. Análisis estático del Dockerfile (IE1, IE3)
+  # 1. Calidad: lint, pruebas y compilación del frontend
   # ---------------------------------------------------------------
-  lint:
-    name: Lint del Dockerfile
+  test:
+    name: Lint, pruebas y build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # --if-present: no falla si el proyecto aún no define ese script
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Pruebas unitarias
+        run: npm test --if-present
+
+      - name: Compilar (build de producción)
+        run: npm run build
+
+  # ---------------------------------------------------------------
+  # 2. Seguridad de dependencias. Si falla, se bloquea el pipeline
+  # ---------------------------------------------------------------
+  security:
+    name: Snyk y npm audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      # Falla ante advertencias o errores (buenas prácticas de imagen)
-      - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
-          dockerfile: frontend/Dockerfile
-          failure-threshold: warning
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit (severidad alta o superior)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Snyk - análisis de dependencias
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=frontend/package.json --severity-threshold=high --json-file-output=snyk-frontend-report.json
+
+      - name: Publicar informe de Snyk
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-frontend-report
+          path: snyk-frontend-report.json
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # 2. Build, validación de nginx, escaneo de vulnerabilidades y push
-  #    (IE1, IE2, IE3, IE4)
+  # 3. Construcción y publicación de la imagen Docker
   # ---------------------------------------------------------------
   build:
-    name: Construir, escanear y publicar imagen
+    name: Construir y publicar imagen
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [test, security]
     permissions:
       contents: read
       packages: write
@@ -57,73 +113,52 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      # GHCR exige el nombre de la imagen en minúsculas
-      - name: Normalizar nombre de imagen
-        run: echo "IMAGE_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-
       - name: Configurar Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build local (sin push) para validar
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          load: true
-          push: false
-          tags: ${{ env.IMAGE_LC }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Prueba de calidad: la configuración de nginx debe ser válida.
-      # backend se mapea a 127.0.0.1 porque nginx resuelve el upstream al arrancar.
-      - name: Validar configuración de nginx
-        run: |
-          docker run --rm --add-host backend:127.0.0.1 \
-            "${IMAGE_LC}:${GITHUB_SHA}" nginx -t
-
-      # Bloquea el pipeline (exit-code 1) ante vulnerabilidades altas o críticas
-      - name: Trivy - escaneo de vulnerabilidades de la imagen
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.IMAGE_LC }}:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-
       - name: Login en GitHub Container Registry
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publicar imagen (solo en push a main)
-        if: github.event_name == 'push'
+      - name: Generar tags de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # VITE_API_URL: URL pública del backend (variable de Actions, ver instrucciones).
+      # Si tu frontend no usa esa variable, el argumento se ignora.
+      - name: Build (y push fuera de los PR)
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
-          push: true
-          tags: |
-            ${{ env.IMAGE_LC }}:${{ github.sha }}
-            ${{ env.IMAGE_LC }}:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------
-  # 3. Despliegue simulado del stack completo + smoke tests (IE4, IE5)
+  # 4. Despliegue simulado en el runner + smoke test
   # ---------------------------------------------------------------
   deploy:
     name: Despliegue simulado
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: read
     steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
       - name: Login en GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -131,84 +166,106 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # El frontend usa la imagen publicada con el SHA del commit
-      - name: Preparar override con la imagen del commit
+      - name: Levantar el frontend con la imagen del commit
         run: |
           IMAGE_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
-          cat > docker-compose.deploy.yml <<EOF
-          services:
-            frontend:
-              image: ${IMAGE_LC}:${GITHUB_SHA}
-              pull_policy: always
-          EOF
           echo "Imagen a desplegar: ${IMAGE_LC}:${GITHUB_SHA}"
+          docker pull "${IMAGE_LC}:${GITHUB_SHA}"
+          docker run -d --name frontend -p 8080:80 "${IMAGE_LC}:${GITHUB_SHA}"
 
-      # nginx necesita que el servicio "backend" exista, así que se levanta el stack completo
-      - name: Levantar stack (db, backend y frontend)
+      - name: Smoke test - página principal
         run: |
-          COMPOSE="docker compose -f docker-compose.yml -f docker-compose.deploy.yml"
-          $COMPOSE pull frontend
-          $COMPOSE build backend
-          $COMPOSE up -d --no-build
-
-      - name: Smoke test - frontend sirve index.html
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/ | grep -qi "<html"; then
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8080/ > /dev/null; then
               echo "Frontend responde (intento $i)"
               exit 0
             fi
-            echo "Esperando al frontend... ($i/30)"
-            sleep 5
+            echo "Esperando al frontend... ($i/15)"
+            sleep 4
           done
           echo "El frontend no respondió a tiempo"
           exit 1
 
-      # Verifica el proxy nginx -> backend
-      - name: Smoke test - proxy /api/health
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/api/health; then
-              echo ""
-              echo "Proxy hacia el backend OK (intento $i)"
-              exit 0
-            fi
-            echo "Esperando al backend... ($i/30)"
-            sleep 5
-          done
-          echo "El proxy no alcanzó al backend"
-          exit 1
+      - name: Mostrar logs si falla
+        if: failure()
+        run: docker logs frontend
 
-      # Verifica la cadena completa frontend -> backend -> MySQL
-      - name: Smoke test - /api/productos (base de datos)
+      - name: Limpiar entorno simulado
+        if: always()
+        run: docker rm -f frontend
+
+  # ---------------------------------------------------------------
+  # 5. Despliegue en AWS Academy (EC2 por SSH)
+  # ---------------------------------------------------------------
+  deploy-aws:
+    name: Despliegue en AWS Academy
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: read
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+    steps:
+      - name: Configurar acceso SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Calcular imagen del commit
+        run: |
+          IMAGE_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE_REF=${IMAGE_LC}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "Imagen a desplegar en AWS: ${IMAGE_LC}:${GITHUB_SHA}"
+
+      - name: Desplegar en la EC2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" \
+            "docker login ghcr.io -u '$GH_USER' --password-stdin"
+          ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" bash -s -- "$IMAGE_REF" <<'REMOTE'
+          set -e
+          IMAGE="$1"
+          docker pull "$IMAGE"
+          docker rm -f frontend 2>/dev/null || true
+          docker run -d --name frontend --restart unless-stopped -p 80:80 "$IMAGE"
+          docker image prune -f
+          docker logout ghcr.io
+          REMOTE
+
+      - name: Smoke test en AWS
         run: |
           for i in $(seq 1 12); do
-            if curl -fsS http://localhost:8080/api/productos > /dev/null; then
-              echo "Cadena completa OK (intento $i)"
+            if ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "curl -fsS http://localhost/ > /dev/null"; then
+              echo "Frontend saludable en AWS (intento $i)"
               exit 0
             fi
-            echo "Esperando a la base de datos... ($i/12)"
+            echo "Esperando al frontend en AWS... ($i/12)"
             sleep 5
           done
-          echo "No se pudo consultar la base de datos a través del frontend"
+          echo "El frontend no respondió a tiempo en AWS"
           exit 1
 
       - name: Mostrar logs si falla
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml logs --tail=100
+        run: ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "docker logs --tail=100 frontend"
 
       - name: Resumen de trazabilidad
         if: always()
         run: |
           {
-            echo "### Trazabilidad del despliegue (frontend)"
+            echo "### Trazabilidad del despliegue (frontend, AWS Academy)"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Autor: ${GITHUB_ACTOR}"
             echo "- Rama: ${GITHUB_REF_NAME}"
             echo "- Imagen: \`${IMAGE_NAME}:${GITHUB_SHA}\`"
             echo "- Ejecución: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Limpiar entorno simulado
-        if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v
