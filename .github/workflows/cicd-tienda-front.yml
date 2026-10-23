@@ -215,7 +215,24 @@ jobs:
           IMAGE="$1"
           docker pull "$IMAGE"
           docker rm -f frontend 2>/dev/null || true
-          docker run -d --name frontend --restart unless-stopped -p 80:80 "$IMAGE"
+          # Une el frontend a la red del backend para que nginx resuelva "backend"
+          NET=""
+          BID="$(docker ps -q --filter name=tienda-backend | head -n 1)"
+          if [ -z "$BID" ]; then
+            BID="$(docker ps -q --filter label=com.docker.compose.service=backend | head -n 1)"
+          fi
+          if [ -n "$BID" ]; then
+            NET="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$BID" | awk '{print $1}')"
+          fi
+          if [ -z "$NET" ] && docker network inspect tienda_default > /dev/null 2>&1; then
+            NET="tienda_default"
+          fi
+          if [ -z "$NET" ]; then
+            echo "ERROR: no se encontró la red del backend. Despliega primero el backend."
+            exit 1
+          fi
+          echo "Red del backend: $NET"
+          docker run -d --name frontend --restart unless-stopped --network "$NET" -p 80:80 "$IMAGE"
           docker image prune -f
           docker logout ghcr.io
           REMOTE
@@ -231,6 +248,21 @@ jobs:
             sleep 5
           done
           echo "El frontend no respondió a tiempo en AWS"
+          exit 1
+
+      # Comprueba que nginx llega al backend (evita dejar publicado un frontend que da 502)
+      - name: Smoke test en AWS - proxy hacia el backend
+        run: |
+          for i in $(seq 1 12); do
+            if ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "curl -fsS http://localhost/api/health"; then
+              echo ""
+              echo "El frontend llega al backend (intento $i)"
+              exit 0
+            fi
+            echo "Esperando al proxy... ($i/12)"
+            sleep 5
+          done
+          echo "El frontend no logra comunicarse con el backend"
           exit 1
 
       - name: Mostrar logs si falla
