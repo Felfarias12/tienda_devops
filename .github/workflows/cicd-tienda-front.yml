@@ -27,43 +27,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # 1. Calidad: lint, pruebas y compilación del frontend
+  # 1. Validaciones estáticas: sintaxis de JS y buenas prácticas del Dockerfile
   # ---------------------------------------------------------------
-  test:
-    name: Lint, pruebas y build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      # --if-present: no falla si el proyecto aún no define ese script
-      - name: Lint
-        run: npm run lint --if-present
-
-      - name: Pruebas unitarias
-        run: npm test --if-present
-
-      - name: Compilar (build de producción)
-        run: npm run build
-
-  # ---------------------------------------------------------------
-  # 2. Seguridad de dependencias. Si falla, se bloquea el pipeline
-  # ---------------------------------------------------------------
-  security:
-    name: Snyk y npm audit
+  lint:
+    name: Validar código y Dockerfile
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -73,39 +40,35 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
-      - name: Instalar dependencias
-        working-directory: frontend
-        run: npm ci
+      # Falla si app.js tiene errores de sintaxis
+      - name: Verificar sintaxis de app.js
+        run: |
+          cp frontend/app.js "${RUNNER_TEMP}/app-check.mjs"
+          node --check "${RUNNER_TEMP}/app-check.mjs"
+          echo "Sintaxis de app.js correcta"
 
-      - name: npm audit (severidad alta o superior)
-        working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+      - name: Verificar archivos esenciales
+        run: |
+          for f in frontend/index.html frontend/app.js frontend/default.conf frontend/Dockerfile; do
+            test -f "$f" || { echo "Falta $f"; exit 1; }
+          done
 
-      - name: Snyk - análisis de dependencias
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      # Falla ante problemas de severidad "error" en el Dockerfile
+      - name: Hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@v3.1.0
         with:
-          args: --file=frontend/package.json --severity-threshold=high --json-file-output=snyk-frontend-report.json
-
-      - name: Publicar informe de Snyk
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: snyk-frontend-report
-          path: snyk-frontend-report.json
-          if-no-files-found: ignore
+          dockerfile: frontend/Dockerfile
+          failure-threshold: error
 
   # ---------------------------------------------------------------
-  # 3. Construcción y publicación de la imagen Docker
+  # 2. Construcción, escaneo de seguridad y publicación de la imagen
+  #    Si Trivy encuentra vulnerabilidades altas o críticas, no se publica nada
   # ---------------------------------------------------------------
   build:
-    name: Construir y publicar imagen
+    name: Construir, escanear y publicar imagen
     runs-on: ubuntu-latest
-    needs: [test, security]
+    needs: lint
     permissions:
       contents: read
       packages: write
@@ -115,6 +78,26 @@ jobs:
 
       - name: Configurar Buildx
         uses: docker/setup-buildx-action@v3
+
+      # Imagen local solo para escanear (no se publica)
+      - name: Construir imagen para escaneo
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          load: true
+          push: false
+          tags: frontend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy - escaneo de la imagen (bloquea si hay altas o críticas)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: frontend:scan
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
 
       - name: Login en GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -133,22 +116,18 @@ jobs:
             type=raw,value=${{ github.sha }}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # VITE_API_URL: URL pública del backend (variable de Actions, ver instrucciones).
-      # Si tu frontend no usa esa variable, el argumento se ignora.
-      - name: Build (y push fuera de los PR)
+      - name: Publicar imagen (solo fuera de los PR)
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_API_URL=${{ vars.VITE_API_URL }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------
-  # 4. Despliegue simulado en el runner + smoke test
+  # 3. Despliegue simulado en el runner + smoke test
   # ---------------------------------------------------------------
   deploy:
     name: Despliegue simulado
@@ -195,7 +174,7 @@ jobs:
         run: docker rm -f frontend
 
   # ---------------------------------------------------------------
-  # 5. Despliegue en AWS Academy (EC2 por SSH)
+  # 4. Despliegue en AWS Academy (EC2 por SSH)
   # ---------------------------------------------------------------
   deploy-aws:
     name: Despliegue en AWS Academy
