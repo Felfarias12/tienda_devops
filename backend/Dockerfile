@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY --chown=node:node . .
+COPY --chown=node:node app.js server.js ./
 
 USER node
 
