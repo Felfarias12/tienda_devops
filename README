@@ -1,11 +1,21 @@
-# Tienda DevOps
-Comandos a utilizar:
-    docker compose build
-    docker compose up -d
+# Evaluación Parcial 2 - Tienda DevOps
 
-Se necesita Docker Desktop
+**Asignatura:** Ingeniería DevOps (DOY0101) - Duoc UC  
+**Despliegue AWS EC2:** http://44.208.150.43/
 
-corre en local: http://localhost:8080/productos
+---
 
-Una vez que se haya hecho push a la rama desarrollo_front, 
-se ejecutará el workflow de GitHub Actions para desplegar la aplicación en el servidor EC2 cuando los secretos se configuren.
+## 1. Arquitectura y Orquestación (IE1 e IE5)
+Solución de microservicios contenerizada con Docker y orquestada vía `docker-compose.yml`:
+* **Frontend:** Nginx (`nginx:alpine`) expuesto en puerto `8080` (local) y `80` (producción).
+* **Backend:** Node.js 20 (`node:20-alpine`), ejecutor sin privilegios (`USER node`) y `HEALTHCHECK` activo en puerto `3001`.
+* **Database:** MySQL 8 con persistencia en volumen `dbdata` e inicializado mediante `init.sql`.
+* **Red y Resiliencia:** Red aislada `tienda-net`. El backend aguarda el estado activo de MySQL usando `depends_on` con `condition: service_healthy`.
+
+---
+
+## 2. Seguridad y Escalabilidad (IE3)
+* **Seguridad y Calidad:** Análisis estático con SonarCloud (Quality Gate), Snyk, `npm audit`, Trivy y Hadolint. Variables `.env` excluidas mediante `.dockerignore`.
+* **Escalabilidad:** Recursos limitados por contenedor (`deploy.resources.limits`). Escalado horizontal del backend:
+  ```bash
+  docker compose up -d --scale backend=3
