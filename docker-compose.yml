@@ -4,14 +4,23 @@ services:
   frontend:
     build: ./frontend
     container_name: tienda-frontend
+    restart: unless-stopped
     ports:
       - "8080:80"
     depends_on:
       - backend
+    networks:
+      - tienda-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
   backend:
     build: ./backend
     container_name: tienda-backend
+    restart: unless-stopped
     environment:
       DB_HOST: db
       DB_USER: root
@@ -21,17 +30,42 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    networks:
+      - tienda-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
 
   db:
     image: mysql:8
     container_name: tienda-db
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: admin123
       MYSQL_DATABASE: tienda_perritos
     volumes:
       - dbdata:/var/lib/mysql
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tienda-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
 
 volumes:
   dbdata:
+
+networks:
+  tienda-net:
+    driver: bridge
