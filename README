@@ -1,11 +1,468 @@
-# Tienda DevOps
-Comandos a utilizar:
-    docker compose build
-    docker compose up -d
+# Tienda de Perritos — Microservicio de productos
+
+> Repositorio del pipeline DevOps — Evaluación Parcial N°2 (CI/CD), Ingeniería DevOps (DOY0101). Continúa el trabajo de la Evaluación Parcial N°1.
+
+**Integrantes:**
+Vicente Donoso
+Felipe Farias
+Mario Jaramillo
+Boris Cordero
+
+
+**Fecha de entrega:** [30/10/2026]
+
+---
+
+## Tabla de contenidos
+
+1. [Descripción del proyecto](#descripción-del-proyecto)
+2. [Arquitectura](#arquitectura)
+3. [Estrategia de ramificación](#estrategia-de-ramificación)
+4. [Estructura de ramas](#estructura-de-ramas)
+5. [Convenciones de commits](#convenciones-de-commits)
+6. [Naming de ramas](#naming-de-ramas)
+7. [Flujo de trabajo colaborativo simulado](#flujo-de-trabajo-colaborativo-simulado)
+8. [Pull Requests y estrategia de revisión](#pull-requests-y-estrategia-de-revisión)
+9. [Contenedores (Docker)](#contenedores-docker)
+10. [CI/CD — GitHub Actions](#cicd--github-actions)
+11. [Seguridad y bloqueos del pipeline](#seguridad-y-bloqueos-del-pipeline)
+12. [Orquestación con Docker Compose](#orquestación-con-docker-compose)
+13. [Despliegue: entorno simulado y AWS Academy](#despliegue-entorno-simulado-y-aws-academy)
+14. [Trazabilidad y calidad](#trazabilidad-y-calidad)
+15. [Estructura de carpetas](#estructura-de-carpetas)
+16. [Control de versiones](#control-de-versiones)
+17. [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
+18. [Uso de Inteligencia Artificial](#uso-de-inteligencia-artificial)
+19. [Reflexiones individuales](#reflexiones-individuales)
+
+---
+
+## Descripción del proyecto
+
+El microservicio muestra una pagina de productos para mascotas, utilizando Node.js con el framework Express y la base de datos MySQL, todo esto se maneja con Docker
+
+La aplicación permite listar, crear, editar y eliminar productos (nombre, descripción, precio y stock). Se compone de tres servicios contenerizados: un **frontend** estático servido por nginx, un **backend** (API REST en Node.js + Express) y una base de datos **MySQL**.
+
+---
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    U["Navegador"] -->|"HTTP puerto 80"| F["frontend: nginx"]
+    F -->|"proxy de /api/"| B["backend: Node.js + Express, puerto 3001"]
+    B -->|"SQL"| D[("db: MySQL 8")]
+```
+
+| Servicio | Tecnología | Contenedor | Puerto | Función |
+|---|---|---|---|---|
+| `frontend` | nginx (imagen `nginx:alpine`) | `frontend` | 80 | Sirve `index.html` y `app.js`, y hace proxy de `/api/` hacia el backend |
+| `backend` | Node.js + Express | `tienda-backend` | 3001 | API REST de productos |
+| `db` | MySQL 8 | `tienda-db` | 3306 (solo red interna) | Almacena los productos |
+
+**Endpoints del backend**
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/health` | Estado del servicio (usado en los smoke tests) |
+| GET | `/api/productos` | Lista todos los productos |
+| GET | `/api/productos/:id` | Obtiene un producto |
+| POST | `/api/productos` | Crea un producto |
+| PUT | `/api/productos/:id` | Actualiza un producto |
+| DELETE | `/api/productos/:id` | Elimina un producto |
+
+---
+
+## Estrategia de ramificación
+
+Escogimos GitFlow ya que permite separar claramente el trabajo en desarrollo (develop) del código estable en producción (main), lo cual facilita gestionar releases planificados y correcciones urgentes (hotfixes) de forma aislada.
+---
+
+## Estructura de ramas
+
+```
+main            → Código en producción, siempre estable
+develop         → Rama de integración, contiene los últimos cambios listos para el próximo release
+feature/<nombre> → Ramas para nuevas funcionalidades, nacen de develop
+hotfix/<nombre>  → Ramas para correcciones urgentes en producción, nacen de main
+```
+
+**Diagrama del flujo:**
+
+```
+main      ●───────────────────●───hotfix───●──────────────▶
+           \                 /              \              
+develop     ●───●───●───●───●────────────────●─────────────▶
+                 \     /         \      /
+        feature/A ●───●  feature/B ●───●
+```
+
+---
+
+## Convenciones de commits
+
+Se utiliza el estándar **Conventional Commits**:
+
+```
+<tipo>(<alcance opcional>): <descripción breve en presente>
+```
+
+**Tipos permitidos:**
+
+| Tipo | Uso |
+|---|---|
+| `feat` | Nueva funcionalidad |
+| `fix` | Corrección de errores |
+| `docs` | Cambios solo en documentación |
+| `style` | Formato, espacios, punto y coma (sin cambios de lógica) |
+| `refactor` | Cambio de código que no corrige bugs ni agrega features |
+| `test` | Agregar o corregir tests |
+| `chore` | Tareas de mantenimiento, configuración, dependencias |
+
+
+
+---
+
+## Naming de ramas
+
+```
+feature/<descripcion-corta-en-kebab-case>
+hotfix/<descripcion-corta-en-kebab-case>
+release/<version>
+```
+
+
+
+---
+
+## Flujo de trabajo colaborativo simulado
+
+
+Se documentan aquí, en orden cronológico, los comandos ejecutados durante la simulación del desarrollo colaborativo.
+
+### Feature 1: [nombre de la funcionalidad]
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feature/nombre-feature-1
+
+git add .
+git commit -m "feat(modulo): descripción del cambio"
+
+git push origin feature/nombre-feature-1
+```
+
+### Feature 2: [nombre de la funcionalidad]
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feature/nombre-feature-2
+
+git add .
+git commit -m "feat(modulo): descripción del cambio"
+
+git push origin feature/nombre-feature-2
+```
+
+### Hotfix: [descripción del bug corregido]
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b hotfix/descripcion-del-bug
+
+git add .
+git commit -m "fix(modulo): descripción de la corrección"
+
+git push origin hotfix/descripcion-del-bug
+
+```
+
+### Registro de Pull Requests
+
+| # | Rama origen | Rama destino | Tipo | Enlace PR | Estado |
+|---|---|---|---|---|---|
+| 1 | feature/nombre-feature-1 | develop | Feature | [link] | Merged |
+| 2 | feature/nombre-feature-2 | develop | Feature | [link] | Merged |
+| 3 | hotfix/descripcion-del-bug | main | Hotfix | [link] | Merged |
+
+---
+
+## Pull Requests y estrategia de revisión
+
+- Toda rama `feature/*` o `hotfix/*` se integra mediante **Pull Request**, nunca con push directo a `main` o `develop`.
+- Cada PR debe:
+  - Tener un título claro siguiendo la convención de commits (ej. `feat: agregar login social`).
+  - Incluir una descripción breve del cambio y su motivación.
+  - Pasar el pipeline de CI (GitHub Actions) antes de poder fusionarse.
+  - Ser revisado por al menos un integrante distinto al autor (revisión cruzada en la pareja).
+- Los PR de `hotfix/*` tienen prioridad de revisión por su carácter urgente.
+- Se utiliza merge commit
+
+---
+
+## Contenedores (Docker)
+
+> **IE1** — Uso de contenedores
+
+Cada servicio tiene su propio `Dockerfile` y se publica como una imagen independiente en **GitHub Container Registry (GHCR)**.
+
+| Imagen | Dockerfile | Detalles |
+|---|---|---|
+| `ghcr.io/<owner>/<repo>-backend` | `backend/Dockerfile` | **[COMPLETAR: imagen base, instalación de dependencias, usuario no root, puerto]** |
+| `ghcr.io/<owner>/<repo>-frontend` | `frontend/Dockerfile` | Base `nginx:alpine`; `apk upgrade` para aplicar parches de seguridad del sistema; copia `index.html`, `app.js` y `default.conf`; expone el puerto 80; incluye `HEALTHCHECK` |
+| `mysql:8` | Imagen oficial | Base de datos; sus datos deben vivir en un volumen (ver [Orquestación](#orquestación-con-docker-compose)) |
+
+Cada imagen publicada se etiqueta con el **SHA del commit** (inmutable, para trazabilidad) y, desde `main`, también como `latest`.
+
+---
+
+## CI/CD — GitHub Actions
+
+> **IE2 / IE3 / IE4** — Automatización del flujo DevOps
+
+Hay dos workflows independientes en `.github/workflows/`, uno por servicio. Se ejecutan en cada **push** y **pull request** hacia `main` que modifique archivos de su carpeta, y también de forma manual (`workflow_dispatch`). En los pull requests solo corren las etapas de validación y construcción; **el despliegue ocurre únicamente en push a `main`**.
+
+### Workflow del backend — `cicd-tienda-backend.yml`
+
+```mermaid
+flowchart LR
+    T["test: Jest con cobertura"] --> S["sonar: SonarCloud con Quality Gate"]
+    SEC["security: npm audit y Snyk"] --> B
+    S --> B["build: imagen Docker publicada en GHCR"]
+    B --> D["deploy: despliegue simulado y smoke tests"]
+    D --> A["deploy-aws: EC2 en AWS Academy"]
+```
+
+| Job | Qué hace | Bloquea el pipeline si... |
+|---|---|---|
+| `test` | `npm ci` y `npm test` (Jest + Supertest) con reporte de cobertura (se guarda como artefacto) | falla una prueba o la cobertura baja del mínimo (líneas 80 %, ramas 70 %, funciones 80 %) |
+| `security` | `npm audit` sobre dependencias de producción y análisis de Snyk; guarda el informe JSON como artefacto | hay vulnerabilidades de severidad alta o crítica |
+| `sonar` | Análisis estático en SonarCloud con la cobertura del job `test` | el Quality Gate no se cumple |
+| `build` | Construye la imagen Docker y la publica en GHCR (fuera de los PR) | falla la construcción |
+| `deploy` | Levanta `db` y `backend` con Docker Compose en el runner usando la imagen del commit y ejecuta smoke tests (`/api/health` y `/api/productos`) | un smoke test no responde |
+| `deploy-aws` | Despliega la misma imagen en una instancia EC2 de AWS Academy por SSH y verifica `/api/health` | falla el despliegue o el smoke test |
+
+### Workflow del frontend — `cicd-tienda-frontend.yml`
+
+| Job | Qué hace | Bloquea el pipeline si... |
+|---|---|---|
+| `lint` | Verifica la sintaxis de `app.js`, la presencia de los archivos esenciales y analiza el `Dockerfile` con Hadolint | hay errores de sintaxis o de Dockerfile |
+| `build` | Construye la imagen, la **escanea con Trivy** y solo si pasa la publica en GHCR | Trivy encuentra vulnerabilidades altas o críticas con corrección disponible |
+| `deploy` | Ejecuta la imagen en el runner y comprueba que responde (smoke test) | no responde |
+| `deploy-aws` | Despliega la imagen en la EC2, la une a la red del backend y verifica la página y el proxy `/api/health` | falla el despliegue o la comunicación con el backend |
+
+---
+
+## Seguridad y bloqueos del pipeline
+
+> **IE3** — Parámetros de seguridad y alertas
+
+| Control | Herramienta | Umbral | Efecto |
+|---|---|---|---|
+| Dependencias del backend | `npm audit` | severidad alta o superior | Falla el job `security` |
+| Dependencias y vulnerabilidades | Snyk | `--severity-threshold=high` | Falla el job `security`; el informe queda como artefacto |
+| Calidad y seguridad del código | SonarCloud | Quality Gate (`sonar.qualitygate.wait=true`) | Falla el job `sonar` y se detiene el pipeline antes de construir la imagen |
+| Vulnerabilidades de la imagen del frontend | Trivy | `HIGH` y `CRITICAL`, ignorando las que aún no tienen parche | Falla el job `build`: no se publica la imagen |
+| Buenas prácticas del Dockerfile | Hadolint | errores | Falla el job `lint` |
+| Pruebas y cobertura mínima | Jest | líneas 80 %, ramas 70 %, funciones 80 % | Falla el job `test` |
+| Actualización de dependencias | Dependabot (`.github/dependabot.yml`) | revisión semanal | Abre pull requests para `npm`, `docker` y `github-actions` |
+
+**Otras medidas de seguridad aplicadas**
+
+- Los secretos (tokens, clave SSH) están en **GitHub Secrets**; ningún secreto se guarda en el repositorio y `.env` está en `.gitignore`.
+- Permisos mínimos en los workflows (`contents: read`; `packages: write` solo en el job que publica la imagen).
+- La EC2 descarga la imagen privada de GHCR con el `GITHUB_TOKEN` de la ejecución, sin credenciales permanentes.
+- En el backend se desactiva el encabezado `X-Powered-By` y CORS permanece cerrado salvo que se defina la variable `CORS_ORIGIN`.
+- Un `concurrency` evita ejecuciones superpuestas: en PR se cancela la anterior; en `main` nunca se corta un despliegue a medias.
+
+**Alertas:** cuando un job falla, GitHub marca el commit o el pull request con una ✗ roja, bloquea las etapas siguientes y notifica a los integrantes por correo; el motivo queda en el log del job.
+
+---
+
+## Orquestación con Docker Compose
+
+> **IE5** — Orquestación de contenedores
+
+La estrategia de orquestación es **Docker Compose** (`docker-compose.yml` en la raíz del repositorio).
+
+- El compose define los servicios `db` (MySQL) y `backend`, que comparten la red `tienda_default` y se comunican por nombre de servicio (`backend`, `db`).
+- En los despliegues, un archivo *override* generado por el pipeline reemplaza la imagen del backend por la del commit (`ghcr.io/<owner>/<repo>-backend:<SHA>`) con `pull_policy: always`, de modo que se despliega exactamente lo que se probó.
+- El frontend se ejecuta como contenedor aparte y el despliegue lo une a la red del backend, para que nginx resuelva el nombre `backend` en el proxy de `/api/`.
+- Políticas de resiliencia: `restart: unless-stopped` (los contenedores vuelven solos tras reiniciar la instancia) y `HEALTHCHECK` en el frontend.
+
+**[COMPLETAR según docker-compose.yml: volumen de datos de MySQL, `healthcheck` de `db` y `depends_on` con `condition: service_healthy`, límites de recursos (`deploy.resources.limits`) y cualquier otro parámetro de escalabilidad configurado.]**
+
+**[COMPLETAR por el equipo: justificación técnica de la elección de Docker Compose frente a Kubernetes y de los parámetros de escalabilidad elegidos.]**
+
+---
+
+## Despliegue: entorno simulado y AWS Academy
+
+> **IE4** — Despliegue automático
+
+El despliegue se ejecuta automáticamente en cada push a `main`, después de que todas las etapas de validación pasan:
+
+1. **Entorno simulado (runner de GitHub):** se levantan los contenedores en la máquina virtual del pipeline y se ejecutan *smoke tests*. Si algo falla, se muestran los logs y el entorno se limpia al terminar.
+2. **AWS Academy (EC2):** el job `deploy-aws` se conecta por SSH a una instancia EC2, descarga la imagen publicada con el SHA del commit, la despliega y verifica que responde.
+
+**Secretos requeridos** (Settings → Secrets and variables → Actions)
+
+| Secreto | Uso |
+|---|---|
+| `SNYK_TOKEN` | Autenticación de Snyk |
+| `SONAR_TOKEN` | Autenticación de SonarCloud |
+| `EC2_HOST` | IP pública (Elastic IP) de la instancia EC2 |
+| `EC2_USER` | Usuario SSH de la instancia |
+| `EC2_SSH_KEY` | Clave privada (`.pem`) del key pair |
+
+**Requisitos de la instancia EC2:** Docker y el plugin Docker Compose instalados, usuario en el grupo `docker`, Security Group con los puertos 22 (SSH), 80 (frontend) y 3001 (backend), y un archivo `.env` creado en la instancia con las variables del backend (no se versiona).
+
+**Particularidades de AWS Academy:** el laboratorio debe estar iniciado al momento del despliegue; las credenciales de AWS rotan en cada sesión, por eso se despliega por SSH en vez de usar la CLI de AWS; y se usa una Elastic IP para que la dirección no cambie entre sesiones.
+
+---
+
+## Trazabilidad y calidad
+
+> **IE4** — Trazabilidad desde el desarrollo hasta producción
+
+**Cómo se garantiza la trazabilidad**
+
+```
+commit (SHA) → ejecución del workflow → imagen en GHCR (tag = SHA) → contenedor desplegado en AWS
+```
+
+- **Una imagen por commit:** la imagen se publica con el SHA como tag, así que cada versión desplegada se puede relacionar con un commit exacto.
+- **Se despliega lo que se probó:** los jobs `deploy` y `deploy-aws` descargan la imagen publicada con ese SHA; no se vuelve a construir.
+- **Resumen de trazabilidad:** cada despliegue deja en la pestaña *Summary* de la ejecución el commit, el autor, la rama, la imagen y el enlace a la ejecución.
+- **Evidencia conservada como artefactos:** reporte de cobertura de las pruebas e informe de Snyk.
+- **Metadatos de la imagen:** las etiquetas OCI generadas por el pipeline (`docker/metadata-action`) incluyen el repositorio y la revisión.
+- **Disparadores por ruta:** cada workflow solo corre cuando cambian los archivos de su servicio.
+
+**Cómo se garantiza la calidad**
+
+- Pruebas unitarias automatizadas en cada push y pull request, con **cobertura mínima obligatoria**.
+- Análisis estático con **SonarCloud**, cuyo *Quality Gate* bloquea la construcción de la imagen.
+- Análisis de seguridad de dependencias, código e imagen con **bloqueo automático** ante severidades altas.
+- *Smoke tests* posteriores al despliegue (`/api/health`, `/api/productos` y el proxy del frontend hacia el backend); un despliegue que no responde deja el pipeline en rojo.
+- Pull requests con revisión cruzada y pipeline en verde antes de fusionar.
+
+---
+
+## Estructura de carpetas
+
+```
+tienda_devops/
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       ├── cicd-tienda-backend.yml
+│       └── cicd-tienda-frontend.yml
+├── backend/
+│   ├── Dockerfile
+│   ├── app.js
+│   ├── server.js
+│   ├── package.json
+│   ├── package-lock.json
+│   └── tests/
+├── db/
+├── frontend/
+│   ├── Dockerfile
+│   ├── default.conf
+│   ├── index.html
+│   └── app.js
+├── docker-compose.yml
+├── instrucciones/
+├── .gitignore
+└── README.md
+```
+
+**Convenciones:**
+El archivo `backend/.env` no se versiona (está en `.gitignore`); sus valores se entregan al servidor por fuera del repositorio.
+
+---
+
+## Control de versiones
+
+Se utiliza`MAJOR.MINOR.PATCH`
+
+- **MAJOR**: cambios incompatibles con versiones anteriores.
+- **MINOR**: nuevas funcionalidades compatibles hacia atrás (ej. features).
+- **PATCH**: correcciones de bugs compatibles hacia atrás (ej. hotfixes).
+
+| Versión | Cambio | Tipo |
+|---|---|---|
+| 1.0.0 | Versión base del microservicio | — |
+| 1.1.0 | Feature 1 agregada | MINOR |
+| 1.2.0 | Feature 2 agregada | MINOR |
+| 1.2.1 | Hotfix aplicado | PATCH |
+
+Los releases se etiquetan (`git tag`) desde `main` tras cada fusión relevante. Además, cada imagen Docker se etiqueta automáticamente con el SHA del commit.
+
+---
+
+## Cómo ejecutar el proyecto
+
+```bash
+# Clonar el repositorio
+git clone [url-del-repositorio]
+cd nombre-microservicio
+
+# Comandos a utilizar:
+docker compose build
+docker compose up -d
+```
 
 Se necesita Docker Desktop
 
 corre en local: http://localhost:8080/productos
 
-Una vez que se haya hecho push a la rama desarrollo_front, 
-se ejecutará el workflow de GitHub Actions para desplegar la aplicación en el servidor EC2 cuando los secretos se configuren.
+**Ejecutar las pruebas del backend**
+
+```bash
+cd backend
+npm ci
+npm test
+```
+
+**Despliegue automático:** al hacer push (o fusionar un pull request) a `main`, los workflows de GitHub Actions validan, construyen la imagen y la despliegan en la instancia EC2 de AWS Academy, siempre que los secretos estén configurados. La aplicación queda disponible en `http://<IP-publica-de-la-EC2>/`.
+
+---
+
+## Uso de Inteligencia Artificial
+
+Conforme a las indicaciones de la evaluación, se declara el uso de IA en este trabajo:
+
+| Herramienta | Uso dado | Sección aplicada |
+|---|---|---|
+| [ Claude ] | [Apoyo en redacción y estructura del formato de este README] | [Formato general, tablas] |
+| Claude | Apoyo en la escritura y depuración de los workflows de GitHub Actions (pruebas, Snyk, SonarCloud, Trivy, construcción de imagen y despliegue en AWS por SSH) | CI/CD, seguridad, despliegue |
+| Claude | Revisión y corrección de los `Dockerfile` del frontend, de `default.conf` (proxy de nginx) y del `.gitignore`; configuración de Dependabot | Contenedores, orquestación |
+| Claude | Diagnóstico de errores del pipeline y del despliegue (dependencias, red de Docker, 502 del proxy) | CI/CD, despliegue |
+| Claude | Sugerencias de formato de precio en `app.js` y de diseño adaptable en `index.html`; borrador de la sección técnica de este README | Frontend, documentación |
+
+Todo contenido generado con IA fue revisado, probado y validado por el equipo. Las **conclusiones, justificaciones técnicas y reflexiones individuales** fueron redactadas por los integrantes, sin apoyo de IA.
+
+**Referencia (formato APA, según https://bibliotecas.duoc.cl/ia):**
+Anthropic. (2026). *Claude* [Modelo de lenguaje de gran tamaño]. https://claude.ai
+
+---
+
+## Reflexiones individuales
+
+### [Felipe Farías]
+
+Con este proyecto aprendi la forma correcta de versionar, modificar y trabajar en equipo utilizando github.
+### [Mario Jaramillo]
+
+Gracias a este proyecto, pude pulir mi forma de trabajar con github para ser mas eficiente.
+
+### [Vicente Donoso]
+
+Aunque ya conocía GitHub de antes y lo usaba en otros ramos, este proyecto me sirvió para entender de verdad cómo se organiza un trabajo en equipo ordenado usando gitflow y ramas separadas.
+
+### [Boris Cordero]
+
+**[PENDIENTE: reflexión personal sobre su aprendizaje y su contribución, redactada por Boris sin apoyo de IA.]**
