@@ -1,0 +1,75 @@
+name: CI - Integracion Docker Compose
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/mejoras-compose
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integracion:
+    name: Pruebas de integracion
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. Descargar codigo del repositorio
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      # 2. Validar configuracion Docker Compose
+      - name: Validar Docker Compose
+        run: docker compose config --quiet
+
+      # 3. Construir e iniciar los servicios
+      - name: Levantar contenedores
+        run: docker compose up -d --build --wait --wait-timeout 180
+
+      # 4. Verificar estado de los contenedores
+      - name: Verificar servicios
+        run: docker compose ps
+
+      # 5. Comprobar funcionamiento del frontend
+      - name: Probar frontend
+        run: curl --fail --silent --show-error http://localhost:8080/
+
+      # 6. Comprobar comunicacion con el backend
+      - name: Probar API Health
+        run: curl --fail --silent --show-error http://localhost:8080/api/health
+
+      # 7. Comprobar consulta a MySQL
+      - name: Probar API Productos
+        run: |
+          python3 - <<'PY'
+          import json
+          from urllib.request import urlopen
+
+          with urlopen("http://localhost:8080/api/productos", timeout=10) as respuesta:
+              productos = json.load(respuesta)
+
+          assert isinstance(productos, list), "La API no devolvio una lista"
+          assert len(productos) > 0, "No se encontraron productos"
+
+          print(f"Prueba exitosa: {len(productos)} productos recuperados")
+          PY
+
+      # 8. Mostrar errores si alguna prueba falla
+      - name: Mostrar logs
+        if: failure()
+        run: docker compose logs --no-color --tail=100
+
+      # 9. Limpiar entorno de pruebas
+      - name: Limpiar contenedores
+        if: always()
+        run: docker compose down -v --remove-orphans
