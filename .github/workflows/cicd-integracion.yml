@@ -26,7 +26,7 @@ jobs:
     steps:
       # 1. Descargar codigo del repositorio
       - name: Checkout del repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 2. Validar configuracion Docker Compose
       - name: Validar Docker Compose
