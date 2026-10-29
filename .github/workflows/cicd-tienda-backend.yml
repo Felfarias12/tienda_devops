@@ -285,6 +285,7 @@ jobs:
   deploy-aws:
     name: Despliegue en AWS Academy
     runs-on: ubuntu-latest
+    environment: production
     needs: deploy
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
