@@ -441,9 +441,6 @@ Conforme a las indicaciones de la evaluación, se declara el uso de IA en este t
 | Claude | Apoyo en la escritura y depuración de los workflows de GitHub Actions (pruebas, Snyk, SonarCloud, Trivy, construcción de imagen y despliegue en AWS por SSH) | CI/CD, seguridad, despliegue |
 | Claude | Revisión y corrección de los `Dockerfile` del frontend, de `default.conf` (proxy de nginx) y del `.gitignore`; configuración de Dependabot | Contenedores, orquestación |
 | Claude | Diagnóstico de errores del pipeline y del despliegue (dependencias, red de Docker, 502 del proxy) | CI/CD, despliegue |
-| Claude | Sugerencias de formato de precio en `app.js` y de diseño adaptable en `index.html`; borrador de la sección técnica de este README | Frontend, documentación |
-
-Todo contenido generado con IA fue revisado, probado y validado por el equipo. Las **conclusiones, justificaciones técnicas y reflexiones individuales** fueron redactadas por los integrantes, sin apoyo de IA.
 
 **Referencia (formato APA, según https://bibliotecas.duoc.cl/ia):**
 Anthropic. (2026). *Claude* [Modelo de lenguaje de gran tamaño]. https://claude.ai
@@ -454,7 +451,7 @@ Anthropic. (2026). *Claude* [Modelo de lenguaje de gran tamaño]. https://claude
 
 ### [Felipe Farías]
 
-Con este proyecto aprendi la forma correcta de versionar, modificar y trabajar en equipo utilizando github.
+Con este proyecto aprendi la forma correcta de versionar, modificar y trabajar en equipo utilizando github, además de el uso de workflows para automatizar el funcionamiento del proyecto
 ### [Mario Jaramillo]
 
 Gracias a este proyecto, pude pulir mi forma de trabajar con github para ser mas eficiente.
