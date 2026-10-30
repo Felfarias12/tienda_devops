@@ -462,4 +462,6 @@ Aunque ya conocía GitHub de antes y lo usaba en otros ramos, este proyecto me s
 
 ### [Boris Cordero]
 
-**[PENDIENTE: reflexión personal sobre su aprendizaje y su contribución, redactada por Boris sin apoyo de IA.]**
+Pude aprender a gestionar con docker compose los contenedores para que funcionen correctamente. logré solucionar un problema con el frontend, que aparecía como unhealthy,
+esto me ayudó a entender las verificaciones de salud de los contenedores, creé un workflow en GitHub Actions para automatizar las pruebas, ahora puedo verificar que 
+los contenedores funcionan y se comunican correctamente cuando se ejecuta el pipeline
