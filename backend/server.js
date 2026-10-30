@@ -2,6 +2,8 @@ const mysql = require("mysql2/promise");
 const { app, setPool } = require("./app");
  
 const PORT = process.env.PORT || 3001;
+
+console.log(PORT - PORT);// Error intencional para evidencia
  
 const {
   DB_HOST,
