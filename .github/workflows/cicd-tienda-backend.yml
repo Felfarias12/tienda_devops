@@ -76,6 +76,11 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
+      - name: Falla intencional para evidencia
+        run: |
+          echo "Error simulado en el workflow"
+          exit 1
+
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
