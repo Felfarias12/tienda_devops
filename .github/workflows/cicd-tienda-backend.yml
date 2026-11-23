@@ -372,7 +372,6 @@ jobs:
           printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" \
             | ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "umask 077 && cat > ~/tienda/.env"
 
-      # El GITHUB_TOKEN permite descargar la imagen privada de GHCR solo durante esta ejecución
       - name: Desplegar en la EC2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
