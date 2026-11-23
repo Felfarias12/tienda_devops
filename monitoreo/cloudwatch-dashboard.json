@@ -1,0 +1,30 @@
+{
+  "widgets": [
+    { "type": "metric", "x": 0, "y": 0, "width": 8, "height": 6,
+      "properties": { "title": "Tiempo de despliegue (s)", "region": "us-east-1",
+        "metrics": [["Tienda/CICD", "DeployDurationSeconds"]], "stat": "Maximum", "period": 300 } },
+    { "type": "metric", "x": 8, "y": 0, "width": 8, "height": 6,
+      "properties": { "title": "Cobertura de pruebas (%)", "region": "us-east-1",
+        "metrics": [["Tienda/CICD", "TestCoveragePercent"]], "stat": "Maximum", "period": 300 } },
+    { "type": "metric", "x": 16, "y": 0, "width": 8, "height": 6,
+      "properties": { "title": "Disponibilidad (1 = arriba)", "region": "us-east-1",
+        "metrics": [["Tienda/App", "Availability", "Service", "backend"], ["...", "frontend"]],
+        "stat": "Minimum", "period": 60 } },
+    { "type": "metric", "x": 0, "y": 6, "width": 12, "height": 6,
+      "properties": { "title": "CPU por contenedor (%)", "region": "us-east-1",
+        "metrics": [["Tienda/App", "ContainerCPU", "Service", "tienda-backend"],
+                    ["...", "tienda-db"], ["...", "tienda-frontend"]],
+        "stat": "Average", "period": 60 } },
+    { "type": "metric", "x": 12, "y": 6, "width": 12, "height": 6,
+      "properties": { "title": "Memoria por contenedor (%)", "region": "us-east-1",
+        "metrics": [["Tienda/App", "ContainerMemory", "Service", "tienda-backend"],
+                    ["...", "tienda-db"], ["...", "tienda-frontend"]],
+        "stat": "Average", "period": 60 } },
+    { "type": "metric", "x": 0, "y": 12, "width": 12, "height": 6,
+      "properties": { "title": "Errores del backend", "region": "us-east-1",
+        "metrics": [["Tienda/App", "ErroresBackend"]], "stat": "Sum", "period": 300 } },
+    { "type": "log", "x": 12, "y": 12, "width": 12, "height": 6,
+      "properties": { "title": "Últimos errores (logs)", "region": "us-east-1", "view": "table",
+        "query": "SOURCE '/tienda/backend' | fields @timestamp, @message | filter level = 'error' or statusCode >= 500 | sort @timestamp desc | limit 20" } }
+  ]
+}
