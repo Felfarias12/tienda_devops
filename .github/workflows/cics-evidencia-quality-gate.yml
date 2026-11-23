@@ -1,0 +1,117 @@
+name: Evidencia - Quality Gate
+
+# Se ejecuta a mano desde Actions → "Evidencia - Quality Gate" → Run workflow.
+# Elige "con_error" para la corrida que debe FALLAR y desmarcalo para la que debe PASAR.
+run-name: "Evidencia quality gate (${{ inputs.con_error && 'CON error' || 'SIN error' }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      con_error:
+        description: "Inyectar el bug intencional (PORT - PORT) antes del análisis"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1. Pruebas + SonarCloud. Con el error inyectado, el quality gate falla.
+  # ---------------------------------------------------------------
+  analisis:
+    name: Pruebas y SonarCloud
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # SonarCloud necesita el historial completo
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: backend
+        run: npm ci
+
+      # El error se agrega solo en el runner: no se hace commit, el repositorio queda limpio
+      - name: Inyectar error intencional (corrida CON error)
+        if: ${{ inputs.con_error }}
+        run: |
+          if ! grep -q "PORT - PORT" backend/server.js; then
+            sed -i '/^const PORT = /a\console.log(PORT - PORT); // Error intencional para evidencia' backend/server.js
+          fi
+          echo "Línea inyectada en backend/server.js:"
+          grep -n "PORT - PORT" backend/server.js
+
+      # Si el bug sigue en el repositorio, esta corrida no sirve como "sin error"
+      - name: Verificar que el código está limpio (corrida SIN error)
+        if: ${{ !inputs.con_error }}
+        run: |
+          if grep -n "PORT - PORT" backend/server.js; then
+            echo "El bug sigue en backend/server.js: elimínalo y vuelve a ejecutar"
+            exit 1
+          fi
+          echo "Código limpio: no existe la línea con el error"
+
+      - name: Ejecutar pruebas con cobertura
+        working-directory: backend
+        run: npm test
+
+      - name: Análisis de SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: backend
+          args: >
+            -Dsonar.projectKey=Felfarias12_tienda_devops
+            -Dsonar.organization=felfarias12
+            -Dsonar.sources=.
+            -Dsonar.tests=tests
+            -Dsonar.exclusions=node_modules/**,coverage/**,tests/**
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+      - name: Resumen de la evidencia
+        if: always()
+        run: |
+          {
+            echo "### Evidencia del quality gate"
+            echo "- Variante: ${{ inputs.con_error && 'CON error intencional' || 'SIN error' }}"
+            echo "- Resultado del análisis: **${{ job.status }}**"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Ejecución: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------
+  # 2. Construcción simulada: solo corre si el análisis pasa (needs).
+  #    No construye ni publica nada; sirve para mostrar el corte en el grafo.
+  # ---------------------------------------------------------------
+  build-simulado:
+    name: Construir imagen (simulado)
+    runs-on: ubuntu-latest
+    needs: analisis
+    steps:
+      - name: Construcción simulada
+        run: echo "El quality gate pasó: se construiría la imagen del commit ${GITHUB_SHA}"
+
+  # ---------------------------------------------------------------
+  # 3. Despliegue simulado: solo corre si la construcción se ejecutó.
+  # ---------------------------------------------------------------
+  deploy-simulado:
+    name: Desplegar (simulado)
+    runs-on: ubuntu-latest
+    needs: build-simulado
+    steps:
+      - name: Despliegue simulado
+        run: echo "Se desplegaría la imagen en producción (no se despliega nada en esta evidencia)"
