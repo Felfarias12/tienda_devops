@@ -6,6 +6,7 @@ on:
     paths:
       - 'backend/**'
       - 'db/**'
+      - 'monitoring/**'
       - 'docker-compose.yml'
       - '.github/workflows/cicd-tienda-backend.yml'
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'backend/**'
       - 'db/**'
+      - 'monitoring/**'
       - 'docker-compose.yml'
       - '.github/workflows/cicd-tienda-backend.yml'
   workflow_dispatch:
@@ -31,11 +33,14 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # 1. Pruebas unitarias + cobertura (IE2)
+  # 1. Pruebas unitarias + cobertura (IE3, IE5)
+  #    Entrega el % de cobertura al dashboard y falla bajo el umbral de jest.
   # ---------------------------------------------------------------
   test:
     name: Pruebas unitarias
     runs-on: ubuntu-latest
+    outputs:
+      coverage: ${{ steps.cov.outputs.pct }}
     defaults:
       run:
         working-directory: backend
@@ -57,6 +62,11 @@ jobs:
       - name: Ejecutar pruebas con cobertura
         run: npm test
 
+      # Lee el resumen que genera el reporter json-summary de jest
+      - name: Extraer porcentaje de cobertura
+        id: cov
+        run: echo "pct=$(jq -r '.total.lines.pct // 0' coverage/coverage-summary.json)" >> "$GITHUB_OUTPUT"
+
       # lcov.info lo consume SonarCloud en el job "sonar"
       - name: Publicar reporte de cobertura
         if: always()
@@ -67,7 +77,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # 2. Seguridad de dependencias (IE3). Si falla, se bloquea el pipeline
+  # 2. Seguridad de dependencias (IE5, IE6). Si falla, se bloquea el pipeline
   # ---------------------------------------------------------------
   security:
     name: Snyk y npm audit
@@ -75,11 +85,6 @@ jobs:
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
-
-      - name: Falla intencional para evidencia
-        run: |
-          echo "Error simulado en el workflow"
-          exit 1
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
@@ -116,7 +121,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------
-  # 3. Calidad de código con SonarCloud (IE2, IE3)
+  # 3. Calidad de código con SonarCloud (IE5, IE6)
   #    Usa la cobertura del job "test". Si el quality gate falla, bloquea.
   # ---------------------------------------------------------------
   sonar:
@@ -152,7 +157,8 @@ jobs:
             -Dsonar.qualitygate.timeout=300
 
   # ---------------------------------------------------------------
-  # 4. Construcción y publicación de la imagen Docker (IE1, IE4)
+  # 4. Construcción y publicación de la imagen Docker (IE2, IE6)
+  #    Solo corre si test, security y sonar pasan: así se detiene el pipeline.
   # ---------------------------------------------------------------
   build:
     name: Construir y publicar imagen
@@ -197,7 +203,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------
-  # 5. Despliegue simulado en el runner + smoke test (IE4, IE5)
+  # 5. Despliegue simulado en el runner + smoke test (IE2)
   # ---------------------------------------------------------------
   deploy:
     name: Despliegue simulado
@@ -283,15 +289,16 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v
 
- # ---------------------------------------------------------------
-  # 6. Despliegue en AWS Academy (EC2 por SSH) con la imagen ya publicada
-  #    Se ejecuta solo en main, después del despliegue simulado.
+  # ---------------------------------------------------------------
+  # 6. Despliegue en AWS Academy (EC2 por SSH) con monitoreo en CloudWatch
+  #    (IE1, IE2, IE3). Solo en main, después del despliegue simulado.
+  #    Necesita "test" en needs para leer el % de cobertura.
   # ---------------------------------------------------------------
   deploy-aws:
     name: Despliegue en AWS Academy
     runs-on: ubuntu-latest
     environment: production
-    needs: deploy
+    needs: [deploy, test]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -300,6 +307,10 @@ jobs:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
     steps:
+      # Hora de inicio para medir la duración del despliegue
+      - name: Marcar inicio
+        run: echo "START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout del código
         uses: actions/checkout@v4
 
@@ -312,8 +323,8 @@ jobs:
           chmod 600 ~/.ssh/ec2_key
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
-      # Mismo criterio que el despliegue simulado: se usa la imagen del commit, no una nueva
-      - name: Preparar override con la imagen del commit
+      # Misma imagen del commit que el despliegue simulado, más el envío de logs a CloudWatch
+      - name: Preparar override con la imagen del commit y logs a CloudWatch
         run: |
           IMAGE_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
           cat > docker-compose.aws.yml <<EOF
@@ -322,6 +333,26 @@ jobs:
               image: ${IMAGE_LC}:${GITHUB_SHA}
               pull_policy: always
               restart: unless-stopped
+              logging:
+                driver: awslogs
+                options:
+                  awslogs-region: us-east-1
+                  awslogs-create-group: "true"
+                  awslogs-group: /tienda/backend
+            db:
+              logging:
+                driver: awslogs
+                options:
+                  awslogs-region: us-east-1
+                  awslogs-create-group: "true"
+                  awslogs-group: /tienda/db
+            frontend:
+              logging:
+                driver: awslogs
+                options:
+                  awslogs-region: us-east-1
+                  awslogs-create-group: "true"
+                  awslogs-group: /tienda/frontend
           EOF
           echo "Imagen a desplegar en AWS: ${IMAGE_LC}:${GITHUB_SHA}"
 
@@ -330,6 +361,16 @@ jobs:
           ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "mkdir -p ~/tienda"
           scp -i ~/.ssh/ec2_key docker-compose.yml docker-compose.aws.yml "$EC2_USER@$EC2_HOST:~/tienda/"
           scp -r -i ~/.ssh/ec2_key db "$EC2_USER@$EC2_HOST:~/tienda/"
+          scp -r -i ~/.ssh/ec2_key monitoring "$EC2_USER@$EC2_HOST:~/tienda/"
+
+      # La contraseña viaja por stdin: no queda en los logs ni en el repositorio
+      - name: Crear .env con la contraseña de la base de datos
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          test -n "$DB_PASSWORD" || { echo "Falta el secret DB_PASSWORD"; exit 1; }
+          printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" \
+            | ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "umask 077 && cat > ~/tienda/.env"
 
       # El GITHUB_TOKEN permite descargar la imagen privada de GHCR solo durante esta ejecución
       - name: Desplegar en la EC2
@@ -363,11 +404,28 @@ jobs:
           echo "El backend no respondió a tiempo en AWS"
           exit 1
 
+      # Instala el agente, el cron de métricas, el filtro de errores, las alarmas y el dashboard
+      - name: Configurar CloudWatch
+        run: ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "bash ~/tienda/monitoring/setup-cloudwatch.sh"
+
+      # Alimenta los widgets "Tiempo de despliegue" y "Cobertura" del dashboard
+      - name: Publicar métricas del pipeline
+        if: success()
+        env:
+          COVERAGE: ${{ needs.test.outputs.coverage }}
+        run: |
+          DURATION=$(( $(date +%s) - START ))
+          ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" "
+            aws cloudwatch put-metric-data --region us-east-1 --namespace Tienda/CICD \
+              --metric-name DeployDurationSeconds --value $DURATION --unit Seconds
+            aws cloudwatch put-metric-data --region us-east-1 --namespace Tienda/CICD \
+              --metric-name TestCoveragePercent --value ${COVERAGE:-0} --unit Percent"
+
       - name: Mostrar logs si falla
         if: failure()
         run: |
           ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" \
-            "cd ~/tienda && docker compose -f docker-compose.yml -f docker-compose.aws.yml logs --tail=100"
+            "cd ~/tienda && docker compose -f docker-compose.yml -f docker-compose.aws.yml logs --tail=100" || true
 
       - name: Resumen de trazabilidad (AWS)
         if: always()
