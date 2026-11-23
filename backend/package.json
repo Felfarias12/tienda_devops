@@ -4,9 +4,12 @@
   "description": "API backend para tienda de alimentos para perritos",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "jest --coverage"
-  },
+    "test": "jest --coverage --coverageReporters=lcov --coverageReporters=json-summary --coverageReporters=text"
+    },
+    "jest": {
+    "coverageThreshold": { "global": { "lines": 70 } }
+    },
+
   "dependencies": {
     "body-parser": "^1.20.9",
     "cors": "^2.8.5",
