@@ -103,7 +103,7 @@ jobs:
     needs: analisis
     steps:
       - name: Construcción simulada
-        run: echo "El quality gate pasó: se construiría la imagen del commit ${GITHUB_SHA}"
+        run: echo "El quality gate pasó, se construiría la imagen del commit ${GITHUB_SHA}"
 
   # ---------------------------------------------------------------
   # 3. Despliegue simulado: solo corre si la construcción se ejecutó.
